@@ -109,13 +109,26 @@ class Driver(LabberDriver):
                         # digitizer
                         dig_slots.append(n+1)
 
-        # only update trig period if necessary, takes time to re-compile
+        # only update trig period or slots if necessary, takes time to re-compile
         if (awg_slots != self.awg_slots or dig_slots != self.dig_slots):
             # hardcoding chassis number = 1 because pyhvi won't work
             # with multiple chassis
             self.awg_slots = awg_slots
             self.dig_slots = dig_slots
             self.trigger_loop.set_slots(self.awg_slots, self.dig_slots)
+
+            # always check trig period now because we have to recompile anyway
+            self.old_trig_period = self.getValue('Trig period')
+            self.old_dig_delay = self.getValue('Digitizer delay')
+
+            wait = round(self.getValue('Trig period') / 10E-9) - 46
+            digi_wait = round(self.getValue('Digitizer delay') / 10E-9)
+            # special case if only one module: add 240 ns extra delay
+            if (n_awg + n_dig) == 1:
+                wait += 24
+
+            self.trigger_loop.write_instructions(wait, digi_wait)
+            self.trigger_loop.prepare_hw()
 
         if (self.getValue('Trig period') != self.old_trig_period or
                 self.getValue('Digitizer delay') != self.old_dig_delay):
