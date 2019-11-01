@@ -3,10 +3,11 @@ import sys
 import os
 import numpy as np
 from BaseDriver import LabberDriver, Error
+from hvi import *
 sys.path.append('C:\\Program Files (x86)\\Keysight\\SD1\\Libraries\\Python')
 import keysightSD1
 
-
+#TODO change driver name
 class Driver(LabberDriver):
     """Keysigh PXI HVI trigger"""
 
@@ -77,7 +78,6 @@ class Driver(LabberDriver):
         # get units
         units = self.get_pxi_config_from_ui()
         n_awg = len([x for x in units if x == 1])
-        n_dig = len([x for x in units if x == 2])
 
         # if no units in use, just stop
         if (n_awg + n_dig) == 0:
@@ -94,14 +94,9 @@ class Driver(LabberDriver):
             # we need at least one AWG
             if n_awg == 0:
                 raise Error('This driver requires at least one AWG.')
-            # currently only support 2 digitizers
-            if n_dig > 2:
-                raise Error('This driver only supports up to two digitizers.')
 
             # get HVI name and open
-            hvi_name = 'InternalTrigger_%d_%d.HVI' % (n_awg, n_dig)
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            self.HVI.open(os.path.join(dir_path, 'HVI_Delay', hvi_name))
+            hvi.main()
 
             # assign units, run twice to ignore errors before all units are set
             for m in range(2):
