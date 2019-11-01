@@ -6,6 +6,7 @@ from BaseDriver import LabberDriver, Error
 from hvi import *
 sys.path.append('C:\\Program Files (x86)\\Keysight\\SD1\\Libraries\\Python')
 import keysightSD1
+import triggerloop
 
 #TODO change driver name
 class Driver(LabberDriver):
@@ -35,19 +36,20 @@ class Driver(LabberDriver):
         # keep track of current PXI configuration
         # 0: None, 1: AWG, 2: Digitizer
         self.units = [0] * self.n_slot
+        self.awg_slots = []
+        self.dig_slots = []
         self.old_trig_period = -1.0
         self.old_dig_delay = -1.0
 
-        # Create HVI object
-        self.HVI = keysightSD1.SD_HVI()
+        # defaulting to chassisnumber = 1 because pyhvi cannot handle multiple chassis 
+        self.trigger_loop = TriggerLoop(1)
 
     def performClose(self, bError=False, options={}):
         """Perform the close instrument connection operation"""
         # do not check for error if close was called with an error
         try:
-            # close instrument
-            self.HVI.stop()
-            self.HVI.close()
+            # close instruments
+            self.triggerloop.close()
         except Exception:
             # never return error here
             pass
@@ -81,50 +83,43 @@ class Driver(LabberDriver):
 
         # if no units in use, just stop
         if (n_awg + n_dig) == 0:
-            self.HVI.stop()
             return
 
         # check if unit configuration changed, if so reload HVI
         if units != self.units:
             # stop current HVI, may not even be running
-            self.HVI.stop()
-            self.HVI.close()
             self.units = units
 
             # we need at least one AWG
             if n_awg == 0:
                 raise Error('This driver requires at least one AWG.')
 
-            # get HVI name and open
-            hvi.main()
-
             # assign units, run twice to ignore errors before all units are set
+            awg_slots = []
+            dig_slots = []
             for m in range(2):
-                awg_number = 0
-                dig_number = 0
                 for n, unit in enumerate(units):
                     # if unit in use, assign to module
                     if unit == 0:
                         continue
                     elif unit == 1:
                         # AWG
-                        module_name = 'Module %d' % awg_number
-                        awg_number += 1
+                        awg_slots.append(n+1)
                     elif unit == 2:
                         # digitizer
-                        module_name = 'DAQ %d' % dig_number
-                        dig_number += 1
-                    r = self.HVI.assignHardwareWithUserNameAndSlot(
-                        module_name, self.chassis, n + 1)
-                    # only check for errors after second run
-                    if m > 0:
-                        self.check_keysight_error(r)
-            # clear old trig period to force update
-            self.old_trig_period = 0.0
+                        dig_slots.append(n+1)
 
         # only update trig period if necessary, takes time to re-compile
+        if (awg_slots != self.awg_slots or dig_slots != self.dig_slots):
+            # hardcoding chassis number = 1 because pyhvi won't work
+            # with multiple chassis
+            self.awg_slots = awg_slots
+            self.dig_slots = dig_slots
+            self.trigger_loop.set_slots(self.awg_slots, self.dig_slots)
+
         if (self.getValue('Trig period') != self.old_trig_period or
                 self.getValue('Digitizer delay') != self.old_dig_delay):
+
             self.old_trig_period = self.getValue('Trig period')
             self.old_dig_delay = self.getValue('Digitizer delay')
             # update trig period, include 460 ns delay in HVI
@@ -133,35 +128,16 @@ class Driver(LabberDriver):
             # special case if only one module: add 240 ns extra delay
             if (n_awg + n_dig) == 1:
                 wait += 24
-            # r = self.HVI.writeIntegerConstantWithIndex(0, 'Wait time', wait)
-            r = self.HVI.writeIntegerConstantWithUserName(
-                'Module 0', 'Wait time', wait)
-            self.check_keysight_error(r)
-            self.log('Number of modules', self.HVI.getNumberOfModules())
-            for n in range(n_dig):
-                r = self.HVI.writeIntegerConstantWithUserName(
-                    'DAQ %d' % n, 'Digi wait', digi_wait)
-                self.check_keysight_error(r)
 
-            # need to recompile after setting wait time, not sure why
-            self.check_keysight_error(self.HVI.compile())
-            # try to load a few times, sometimes hangs on first try
-            n_try = 5
-            while True:
-                try:
-                    self.check_keysight_error(self.HVI.load())
-                    break
-                except Exception:
-                    n_try -= 1
-                    if n_try <= 0:
-                        raise
+            self.trigger_loop.write_instructions(wait, digi_wait)
+            self.trigger_loop.prepare_hw()
 
         # start or stop the HVI, depending on output state
         if self.getValue('Output'):
-            self.check_keysight_error(self.HVI.start())
+            self.trigger_loop.run()
 
         else:
-            self.HVI.stop()
+            self.trigger_loop.close()
 
     def check_keysight_error(self, code):
         """Check and raise error"""
