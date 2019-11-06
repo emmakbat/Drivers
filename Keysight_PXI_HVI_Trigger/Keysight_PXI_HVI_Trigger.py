@@ -3,10 +3,9 @@ import sys
 import os
 import numpy as np
 from BaseDriver import LabberDriver, Error
-from hvi import *
 sys.path.append('C:\\Program Files (x86)\\Keysight\\SD1\\Libraries\\Python')
 import keysightSD1
-import triggerloop
+from triggerloop import TriggerLoop
 
 #TODO change driver name
 class Driver(LabberDriver):
@@ -80,6 +79,7 @@ class Driver(LabberDriver):
         # get units
         units = self.get_pxi_config_from_ui()
         n_awg = len([x for x in units if x == 1])
+        n_dig = len([x for x in units if x == 2])
 
         # if no units in use, just stop
         if (n_awg + n_dig) == 0:

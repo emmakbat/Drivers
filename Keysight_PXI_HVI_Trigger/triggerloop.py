@@ -1,5 +1,5 @@
 import sys
-sys.path.append(r'C:\Program Files (x86)\Keysight\SD1\Libraries\Python')
+sys.path.append('C:\Program Files (x86)\Keysight\SD1\Libraries\Python')
 import keysightSD1
 import pyhvi
 import numpy as np
@@ -29,23 +29,18 @@ class TriggerLoop:
         then runs triggering until user interrupt
         '''
         # modules chassis and slot numbers
-        self.awg_slots = awg_slots
-        self.dig_slots = dig_slots
-
-        options = "channelNumbering=keysight"
-        model = ""
+        self.awg_slots = []
+        self.dig_slots = []
 
         # Ext trigger module (TODO: not sure if these values might ever change)
-        chassisNumber = chassis
-        slotNumber = 5
+        self.chassis = chassis
+        slotNumber = 6
         partNumber = ""
 
         extTrigModule = keysightSD1.SD_AOU()
-        status = extTrigModule.openWithSlot(partNumber, chassisNumber, slotNumber)
+        status = extTrigModule.openWithSlot(partNumber, self.chassis, slotNumber)
         if (status < 0):
-            print("Invalid Module Name, Chassis or Slot numbers might be invalid! Press enter to quit")
-            input()
-            sys.exit()
+            raise Error("Invalid external trigger module. Name, Chassis or Slot numbers might be invalid!")
 
         # Create HVI instance
         moduleResourceName = "KtHvi"
@@ -82,8 +77,8 @@ class TriggerLoop:
         except on initialization or by the reset function, else competing
         for hardware resources
         '''
-        awgModules = open_modules(self.awg_slots, 'awg')
-        digModules = open_modules(self.dig_slots, 'dig')
+        awgModules = self.open_modules(self.awg_slots, 'awg')
+        digModules = self.open_modules(self.dig_slots, 'dig')
 
         index = 0
         for awgModule in awgModules:
@@ -96,6 +91,14 @@ class TriggerLoop:
             index += 1
 
     def open_modules(self, slots, type):
+        ''' 
+        slots = list of slot numbers of device
+        type = string 'awg' to open awg modules, 'dig' to
+        open digitizer modules
+        open_modules creates and returns a list keysightSD1 module objects
+        '''
+        options = "channelNumbering=keysight"
+        model = ""
         modules = []
         if slots:
             for slot in slots:
@@ -107,9 +110,9 @@ class TriggerLoop:
                     module = keysightSD1.SD_AIN()
                 else:
                     raise Error('Only AWGs and digitizers are supported')
-                id_num = module.openWithOptions(model, chassis, slot, options)
+                id_num = -1#module.openWithOptions(model, self.chassis, slot, options)
                 if id_num < 0:
-                    raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(chassis, slot, id_num))
+                    raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(self.chassis, slot, id_num))
                 if not module.hvi:
                     raise Error("Module in chassis {} and slot {} does not support HVI2.0... exiting".format(awgModule.getChassis(), awgModule.getSlot()))
                 modules.append(module)
