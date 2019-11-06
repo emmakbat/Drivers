@@ -32,15 +32,7 @@ class TriggerLoop:
         self.awg_slots = []
         self.dig_slots = []
 
-        # Ext trigger module (TODO: not sure if these values might ever change)
         self.chassis = chassis
-        slotNumber = 6
-        partNumber = ""
-
-        extTrigModule = keysightSD1.SD_AOU()
-        status = extTrigModule.openWithSlot(partNumber, self.chassis, slotNumber)
-        if (status < 0):
-            raise Error("Invalid external trigger module. Name, Chassis or Slot numbers might be invalid!")
 
         # Create HVI instance
         moduleResourceName = "KtHvi"
@@ -55,38 +47,38 @@ class TriggerLoop:
         # ensure that when program quits, the hardware resources will be released
         atexit.register(self.close)
 
-    def set_slots(self, awg_slots, dig_slots):
+    def set_slots(self, awg_slots, dig_slots, awgModules, digModules):
         ''' reset hw interface with new slots 
         (everything must be redone, unless we make other code more sophisticated.
         just trying to get it working for now)
         '''
         self.awg_slots = awg_slots
         self.dig_slots = dig_slots
-        self.reset()
+        self.reset(awgModules, digModules)
 
-    def reset(self):
+    def reset(self, awgModules, digModules):
         ''' close out old hw interface and open new ones
         TODO: find a way to reset instruction sequence other than 
         closing out all hardware and re-initializing
         '''
         self.close_modules()
-        self.init_hw()
+        self.init_hw(awgModules, digModules)
 
-    def init_hw(self):
+    def init_hw(self, awgModules, digModules):
         ''' initialize hardware interfaces. should never be called
         except on initialization or by the reset function, else competing
         for hardware resources
         '''
-        awgModules = self.open_modules(self.awg_slots, 'awg')
-        digModules = self.open_modules(self.dig_slots, 'dig')
+        #awgModules = self.open_modules(self.awg_slots, 'awg')
+        #digModules = self.open_modules(self.dig_slots, 'dig')
 
         index = 0
         for awgModule in awgModules:
-            awg = AWG(hvi, awgModule, index)
+            awg = AWG(self.hvi, awgModule, index)
             self.awgs.append(awg)
             index += 1
         for digModule in digModules:
-            dig = DIG(hvi, digModule, index)
+            dig = DIG(self.hvi, digModule, index)
             self.digs.append(dig)
             index += 1
 
@@ -102,15 +94,13 @@ class TriggerLoop:
         modules = []
         if slots:
             for slot in slots:
-                print(slot)
-                print(type)
                 if type == 'awg':
                     module = keysightSD1.SD_AOU()
                 elif type == 'dig':
                     module = keysightSD1.SD_AIN()
                 else:
                     raise Error('Only AWGs and digitizers are supported')
-                id_num = -1#module.openWithOptions(model, self.chassis, slot, options)
+                id_num = module.openWithOptions(model, self.chassis, slot, options)
                 if id_num < 0:
                     raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(self.chassis, slot, id_num))
                 if not module.hvi:

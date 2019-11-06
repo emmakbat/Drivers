@@ -115,7 +115,10 @@ class Driver(LabberDriver):
             # with multiple chassis
             self.awg_slots = awg_slots
             self.dig_slots = dig_slots
-            self.trigger_loop.set_slots(self.awg_slots, self.dig_slots)
+            self.slot_free = [True]*18
+            awgModules = self.open_modules(1, awg_slots, 'awg')
+            digModules = self.open_modules(1, dig_slots, 'dig')
+            self.trigger_loop.set_slots(self.awg_slots, self.dig_slots, awgModules, digModules)
 
             # always check trig period now because we have to recompile anyway
             self.old_trig_period = self.getValue('Trig period')
@@ -127,7 +130,7 @@ class Driver(LabberDriver):
             if (n_awg + n_dig) == 1:
                 wait += 24
 
-            self.trigger_loop.write_instructions(wait, digi_wait)
+            self.trigger_loop.write_instructions(wait*10, digi_wait)
             self.trigger_loop.prepare_hw()
 
         if (self.getValue('Trig period') != self.old_trig_period or
@@ -158,6 +161,40 @@ class Driver(LabberDriver):
             return
         # get error message
         raise Error(keysightSD1.SD_Error.getErrorMessage(code))
+
+    def open_modules(self, chassis, slots, type):
+        ''' 
+        slots = list of slot numbers of device
+        type = string 'awg' to open awg modules, 'dig' to
+        open digitizer modules
+        open_modules creates and returns a list keysightSD1 module objects
+        '''
+        options = "channelNumbering=keysight"
+        model = ""
+        modules = []
+        if slots:
+            for slot in slots:
+                if type == 'awg':
+                    module = keysightSD1.SD_AOU()
+                elif type == 'dig':
+                    module = keysightSD1.SD_AIN()
+                else:
+                    raise Error('Only AWGs and digitizers are supported')
+                self.log('slot number: '+str(slot))
+                # check that we haven't already assigned a module to this slot
+                if self.slot_free[slot-1] == True:
+                    id_num = module.openWithOptions(model, chassis, slot, options)
+
+                    if id_num < 0:
+                        raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(chassis, slot, id_num))
+                    if not module.hvi:
+                        raise Error("Module in chassis {} and slot {} does not support HVI2.0... exiting".format(awgModule.getChassis(), awgModule.getSlot()))
+                    modules.append(module)
+                    self.slot_free[slot-1] = False
+                    self.log('slots status: '+str(self.slot_free))
+                else:
+                    self.log('slot taken, check behavior', 30)
+        return modules
 
     def auto_detect(self):
         """Auto-detect units"""
