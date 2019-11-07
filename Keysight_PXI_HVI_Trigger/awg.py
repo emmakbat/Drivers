@@ -13,6 +13,12 @@ class AWG:
         hvi.engines.add(awgHviEngineID, "AWGengine"+str(index))
         self.awgEngine = hvi.engines[index]
 
+    def close(self):
+        ALL_CHANNELS_MASK = 0xF
+        self.awgModule.AWGstopMultiple(ALL_CHANNELS_MASK)
+        is_open = self.awgModule.close()
+        return str(is_open)
+
     def trigger_all(self, hvi):
         ''' adds sequencer instruction to trigger all channels of AWG
         '''

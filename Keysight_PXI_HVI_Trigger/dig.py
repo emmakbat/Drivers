@@ -14,6 +14,12 @@ class DIG:
         hvi.engines.add(digHviEngineID, "DIGengine"+str(index))
         self.digEngine = hvi.engines[index]
 
+    def close(self):
+        ALL_CHANNELS_MASK = 0xF
+        self.digModule.DAQstopMultiple(ALL_CHANNELS_MASK)
+        is_open = self.digModule.close()
+        return str(is_open)
+
     def trigger_all(self, hvi):
         moduleActions = self.digModule.hvi.actions
         self.digEngine.actions.add(moduleActions.daq1_trigger, "dig_trigger1")

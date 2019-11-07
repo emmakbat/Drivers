@@ -115,10 +115,21 @@ class Driver(LabberDriver):
             # with multiple chassis
             self.awg_slots = awg_slots
             self.dig_slots = dig_slots
-            self.slot_free = [True]*18
-            awgModules = self.open_modules(1, awg_slots, 'awg')
-            digModules = self.open_modules(1, dig_slots, 'dig')
-            self.trigger_loop.set_slots(self.awg_slots, self.dig_slots, awgModules, digModules)
+            #awgModules = self.open_modules(1, awg_slots, 'awg')
+            #digModules = self.open_modules(1, dig_slots, 'dig')
+            #close_log, awg_info, dig_info = self.trigger_loop.set_slots(self.awg_slots, self.dig_slots, slot_free)
+            
+            close_log = self.trigger_loop.close_modules()
+
+            self.log('closed: '+close_log)
+
+            self.trigger_loop.awg_slots = awg_slots
+            self.trigger_loop.dig_slots = dig_slots
+
+            awg_info, dig_info = self.trigger_loop.init_hw()
+
+            self.log('awg: '+awg_info[0], awg_info[1])
+            self.log('dig: '+dig_info[0], dig_info[1])
 
             # always check trig period now because we have to recompile anyway
             self.old_trig_period = self.getValue('Trig period')

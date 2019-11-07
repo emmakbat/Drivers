@@ -16,10 +16,18 @@ in current beta version of HVI, these need to be in the same segment
 (i.e., not connected across a bus) or compilation will fail
 """
 
-class TriggerLoop:
+class TriggerLoop():
     '''
-    class for managing a loop that triggers every device simultaneously
+    singleton class for managing a loop that triggers every device simultaneously
     '''
+
+    __instance = None
+
+    def __new__(cls, chassis):
+        if cls.__instance is None:
+            cls.__instance = super(TriggerLoop, cls).__new__(cls)
+            cls.__instance.__initialized = False
+        return cls.__instance
 
     def __init__(self, chassis):
         '''
@@ -29,10 +37,22 @@ class TriggerLoop:
         then runs triggering until user interrupt
         '''
         # modules chassis and slot numbers
+        if self.__initialized: return
+
+        self.__initialized = True
         self.awg_slots = []
         self.dig_slots = []
+        self.slot_free = [True]*18
 
+        # Ext trigger module (TODO: not sure if these values might ever change)
         self.chassis = chassis
+        slotNumber = 6
+        partNumber = ""
+
+        extTrigModule = keysightSD1.SD_AOU()
+        status = extTrigModule.openWithSlot(partNumber, self.chassis, slotNumber)
+        if (status < 0):
+            raise Error("Invalid external trigger module. Name, Chassis or Slot numbers might be invalid!")
 
         # Create HVI instance
         moduleResourceName = "KtHvi"
@@ -47,31 +67,35 @@ class TriggerLoop:
         # ensure that when program quits, the hardware resources will be released
         atexit.register(self.close)
 
-    def set_slots(self, awg_slots, dig_slots, awgModules, digModules):
+    def set_slots(self, awg_slots, dig_slots, slot_free):
         ''' reset hw interface with new slots 
         (everything must be redone, unless we make other code more sophisticated.
         just trying to get it working for now)
+
+        returns log string and status for awg and digitizer as tuples
         '''
+        close_log = self.close()
+
         self.awg_slots = awg_slots
         self.dig_slots = dig_slots
-        self.reset(awgModules, digModules)
+        self.slot_free = slot_free
 
-    def reset(self, awgModules, digModules):
-        ''' close out old hw interface and open new ones
-        TODO: find a way to reset instruction sequence other than 
-        closing out all hardware and re-initializing
-        '''
-        self.close_modules()
-        self.init_hw(awgModules, digModules)
+        awg_info, dig_info = self.init_hw()
+        return close_log, awg_info, dig_info
 
-    def init_hw(self, awgModules, digModules):
+    def init_hw(self):
         ''' initialize hardware interfaces. should never be called
         except on initialization or by the reset function, else competing
         for hardware resources
-        '''
-        #awgModules = self.open_modules(self.awg_slots, 'awg')
-        #digModules = self.open_modules(self.dig_slots, 'dig')
 
+        returns log string and status for awg and digitizer as tuples
+        '''
+        awgModules, awg_log, awg_status = self.open_modules(self.awg_slots, 'awg')
+        digModules, dig_log, dig_status = self.open_modules(self.dig_slots, 'dig')
+
+        if self.__initialized == False:
+            self.hvi = pyhvi.KtHvi("KtHvi")
+            self.hvi.platform.chassis.add_auto_detect()
         index = 0
         for awgModule in awgModules:
             awg = AWG(self.hvi, awgModule, index)
@@ -81,6 +105,7 @@ class TriggerLoop:
             dig = DIG(self.hvi, digModule, index)
             self.digs.append(dig)
             index += 1
+        return (awg_log, awg_status), (dig_log, dig_status)
 
     def open_modules(self, slots, type):
         ''' 
@@ -89,6 +114,8 @@ class TriggerLoop:
         open digitizer modules
         open_modules creates and returns a list keysightSD1 module objects
         '''
+        log_string = ""
+        log_status = 20
         options = "channelNumbering=keysight"
         model = ""
         modules = []
@@ -100,24 +127,36 @@ class TriggerLoop:
                     module = keysightSD1.SD_AIN()
                 else:
                     raise Error('Only AWGs and digitizers are supported')
-                id_num = module.openWithOptions(model, self.chassis, slot, options)
-                if id_num < 0:
-                    raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(self.chassis, slot, id_num))
-                if not module.hvi:
-                    raise Error("Module in chassis {} and slot {} does not support HVI2.0... exiting".format(awgModule.getChassis(), awgModule.getSlot()))
-                modules.append(module)
-        return modules
+
+                # check that we haven't already assigned module to this slot
+                if self.slot_free[slot-1] == True:
+                    id_num = module.openWithOptions(model, self.chassis, slot, options)
+                    if id_num < 0:
+                        raise Error("Error opening module in chassis {}, slot {}, opened with ID: {}".format(self.chassis, slot, id_num))
+                    if not module.hvi:
+                        raise Error("Module in chassis {} and slot {} does not support HVI2.0... exiting".format(awgModule.getChassis(), awgModule.getSlot()))
+                    modules.append(module)
+                    self.slot_free[slot-1] = False
+                    log_string +='slots status: '+str(self.slot_free)+'\n'
+                else:
+                    log_string +='slot taken, check behavior'+'\n'
+                    log_status = 30
+        return modules, log_string, log_status
 
     def close_modules(self):
         ''' close awgs and digitizers but not chassis
         '''
+        log_string = ''
         for awg in self.awgs:
-            awg.close()
+            is_open = awg.close()
+            log_string += 'awg open status: '+is_open+'\n'
         for dig in self.digs:
             dig.close()
         # prevent weird behavior if this gets called twice in a row
         self.awgs = []
         self.digs = []
+        self.slot_free = [True]*18
+        return log_string
 
     def write_instructions(self, wait, dig_wait=0):
         ''' creates instruction sequences for all devices
@@ -223,4 +262,6 @@ class TriggerLoop:
         release all hardware resources
         '''
         self.hvi.release_hw()
-        self.close_modules()
+        mod_closed = self.close_modules()
+        self.__initialized = False
+        return mod_closed
